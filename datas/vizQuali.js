@@ -4,7 +4,7 @@ const STOPWORDS_FR = new Set([
   "il","je","la","le","les","leur","lui","ma","mais","me","même","mes","moi","mon",
   "ne","nos","notre","nous","on","ou","par","pas","pour","qu","que","qui","sa","se",
   "ses","son","sur","ta","te","tes","toi","ton","tu","un","une","vos","votre","vous",
-  "c","d","j","l","n","s","t","y","été","être","fait","ça","ici"
+  "c","d","j","l","n","s","t","y","été","être","fait","ça","ici", "est" , "sont", "ainsi"
 ]);
 
 function normalizeText(text) {
