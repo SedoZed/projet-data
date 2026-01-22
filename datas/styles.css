@@ -148,9 +148,19 @@ a.active .pill { background: rgba(110, 168, 254, 0.9); }
   color: #e6edf3;
   border: 1px solid rgba(255,255,255,.10);
   border-radius: 16px;
-  padding: 0;
+
+  /* ✅ un peu d’espace entre bordure et contenu */
+  padding: 6px 8px;
+
+  /* ✅ empêche le texte de déborder */
+  max-width: 260px;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+
   box-shadow: 0 10px 30px rgba(0,0,0,.35);
 }
+
 .person-tooltip.leaflet-tooltip:before{
   border-top-color: rgba(11,15,20,.96);
 }
@@ -164,6 +174,11 @@ a.active .pill { background: rgba(110, 168, 254, 0.9); }
 .person-popup .leaflet-popup-tip{
   background: rgba(11,15,20,.96);
 }
+
 .person-popup .leaflet-popup-content{
-  margin: 12px;
+  margin: 8px; /* un petit peu plus d’air */
+  max-width: 260px;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
