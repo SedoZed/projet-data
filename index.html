@@ -30,8 +30,30 @@
         <section class="card">
           <h2>Carte des artistes</h2>
             <p style="margin:0 0 10px; opacity:.85;">
-              Placement approximatif par nationalité (capitale/centre). Survol = fiche artiste.
+              Cette première datavisualisation place les artistes du dataset sur une carte du monde. Survolez les points pour obtenir plus d'informations sur chacun d'entre eux ! (et cliquez pour figer la bulle d'information)
             </p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 12px;">
+            <div>
+              <label for="regionSelect" style="display:block; font-size:12px; opacity:.85; margin-bottom:6px;">Région</label>
+                <select id="regionSelect" class="select">
+                  <option value="__ALL__">Toutes</option>
+                </select>
+              </div>
+
+            <div>
+              <label for="natSelect" style="display:block; font-size:12px; opacity:.85; margin-bottom:6px;">Nationalité</label>
+                <select id="natSelect" class="select">
+                  <option value="__ALL__">Toutes</option>
+                </select>
+            </div>
+
+            <div style="min-width:240px;">
+              <label for="movementSelect" style="display:block; font-size:12px; opacity:.85; margin-bottom:6px;">Courant artistique</label>
+                <select id="movementSelect" class="select">
+                  <option value="__ALL__">Tous</option>
+                </select>
+              </div>
+            </div>
           <div id="map" style="height:560px; border-radius:16px; overflow:hidden;"></div>
         </section>
       </main>

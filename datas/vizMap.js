@@ -1,10 +1,11 @@
 // datas/vizMap.js
-// Carte sombre + tooltip au survol (sans auto-pan) + popup “pinnée” au clic + pin sobre
+// Carte sombre + tooltip/popup + filtres région / nationalité / courant (genre)
 
 const CSV_PATH = "./datas/artists.csv";
 
-// Coordonnées "représentatives" par nationalité (capitale / centre).
-// (À compléter si tu veux couvrir plus de cas.)
+const ALL = "__ALL__";
+
+// Coordonnées représentatives par nationalité
 const NATIONALITY_COORDS = {
   Italian:   { lat: 41.9028, lon: 12.4964 },
   French:    { lat: 48.8566, lon: 2.3522 },
@@ -22,13 +23,47 @@ const NATIONALITY_COORDS = {
   American:  { lat: 38.9072, lon: -77.0369 },
   Greek:     { lat: 37.9838, lon: 23.7275 },
   Belarusian:{ lat: 53.9006, lon: 27.5590 },
-  Jewish:    null // pas une localisation géographique -> ignorée
+  Jewish:    null
 };
 
-const WIKI_THUMB_CACHE = new Map();
+// Mapping nationalité -> région (tu peux compléter)
+const NATIONALITY_REGION = {
+  Italian: "Europe",
+  French: "Europe",
+  Belgian: "Europe",
+  Flemish: "Europe",
+  Dutch: "Europe",
+  Spanish: "Europe",
+  German: "Europe",
+  Austrian: "Europe",
+  Swiss: "Europe",
+  British: "Europe",
+  Norwegian: "Europe",
+  Greek: "Europe",
+  Belarusian: "Europe",
+  Russian: "Europe", // (selon choix, parfois Europe/Asie — on le met Europe ici)
+  American: "Amérique du Nord",
+  Mexican: "Amérique du Nord"
+  // Asie / Afrique / Océanie / Amérique du Sud : à ajouter si tu ajoutes ces nationalités
+};
 
-// Gestion popup “pinnée” (clic)
+const REGIONS = [
+  "Europe",
+  "Asie",
+  "Amérique du Nord",
+  "Amérique du Sud",
+  "Afrique",
+  "Océanie"
+];
+
+const WIKI_THUMB_CACHE = new Map();
 let PINNED_MARKER = null;
+
+let map = null;
+let layerGroup = null;
+
+let ALL_ROWS = [];        // rows CSV parsées
+let CURRENT_MARKERS = []; // markers actuellement affichés
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -39,19 +74,25 @@ function escapeHtml(s) {
     .replaceAll("'", "&#039;");
 }
 
-// "French,British" => essaie French puis British etc.
-function pickCoords(nationalityRaw) {
+function pickPrimaryNationality(nationalityRaw) {
   if (!nationalityRaw) return null;
   const parts = String(nationalityRaw).split(",").map(s => s.trim()).filter(Boolean);
-
+  // Choisit la première nationalité qui a des coords
   for (const p of parts) {
     const coords = NATIONALITY_COORDS[p];
-    if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lon)) return coords;
+    if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lon)) return p;
   }
   return null;
 }
 
-// Extrait le "title" de l’URL Wikipedia (…/wiki/Claude_Monet)
+function pickCoordsFromNationality(nationalityRaw) {
+  const nat = pickPrimaryNationality(nationalityRaw);
+  if (!nat) return null;
+  const coords = NATIONALITY_COORDS[nat];
+  if (!coords) return null;
+  return { ...coords, nat };
+}
+
 function wikiTitleFromUrl(url) {
   try {
     const u = new URL(url);
@@ -63,7 +104,6 @@ function wikiTitleFromUrl(url) {
   }
 }
 
-// Wikipedia REST: summary => contient souvent thumbnail.source
 async function fetchWikiThumbnail(title) {
   if (!title) return null;
   if (WIKI_THUMB_CACHE.has(title)) return WIKI_THUMB_CACHE.get(title);
@@ -89,11 +129,10 @@ function cardHtml({ name, genre, nationality, years, thumbUrl, wikiUrl }) {
   const safeYears = escapeHtml(years);
   const safeWiki = escapeHtml(wikiUrl || "");
 
-  // ✅ contain = pas de rognage (avec fond)
   const img = thumbUrl
     ? `<img src="${escapeHtml(thumbUrl)}" alt="${safeName}"
          style="width:100%;height:100%;object-fit:contain;display:block;padding:6px;background:rgba(255,255,255,0.04);">`
-    : `<div style="display:flex;align-items:center;justify-content:center;height:100%;opacity:.7;">(pas de photo)</div>`;
+    : `<div style="display:flex;align-items:center;justify-content:center;height:100%;opacity:.7;">(photo en chargement / indisponible)</div>`;
 
   const wikiLine = safeWiki
     ? `<div style="margin-top:8px;font-size:12px;opacity:.9;">
@@ -111,7 +150,7 @@ function cardHtml({ name, genre, nationality, years, thumbUrl, wikiUrl }) {
       </div>
       <div style="font-weight:800; margin-bottom:6px;">${safeName}</div>
       <div style="font-size:12px; line-height:1.45; opacity:.92;">
-        <div><b>Genre (artistique):</b> ${safeGenre || "—"}</div>
+        <div><b>Courant:</b> ${safeGenre || "—"}</div>
         <div><b>Nationalité:</b> ${safeNat || "—"}</div>
         <div><b>Années:</b> ${safeYears || "—"}</div>
       </div>
@@ -120,12 +159,11 @@ function cardHtml({ name, genre, nationality, years, thumbUrl, wikiUrl }) {
   `;
 }
 
-// Tooltip = survol (pas de pan), Popup = clic (cliquable)
 function hoverHtml(payload) {
   return cardHtml(payload);
 }
 
-// ✅ pin “sobre” : petit point avec halo
+// Pin sobre
 const soberIcon = L.divIcon({
   className: "",
   html: `
@@ -140,33 +178,191 @@ const soberIcon = L.divIcon({
   iconAnchor: [6, 6]
 });
 
-// ✅ Option “smart” : choisir au survol si tooltip plutôt au-dessus ou en dessous
-// (évite qu’elle parte hors-carte quand le point est en bordure).
+// “Smart” top/bottom pour tooltip
 function chooseTooltipDirection(map, latlng) {
-  const size = map.getSize();                       // px
-  const p = map.latLngToContainerPoint(latlng);     // px
-  const margin = 160; // approx hauteur tooltip + marge
+  const size = map.getSize();
+  const p = map.latLngToContainerPoint(latlng);
+  const margin = 170;
 
-  // si pas assez de place en haut, on préfère en bas
   if (p.y < margin) return { direction: "bottom", offset: [0, 12] };
-  // si pas assez de place en bas, on préfère en haut
   if (size.y - p.y < margin) return { direction: "top", offset: [0, -12] };
-
-  // sinon, plutôt en haut (ou bottom si tu préfères)
   return { direction: "top", offset: [0, -12] };
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  const map = L.map("map", { preferCanvas: true }).setView([20, 0], 2);
+// --- Filtres UI
+function fillSelect(selectEl, values, placeholderLabel) {
+  selectEl.innerHTML = "";
+  const optAll = document.createElement("option");
+  optAll.value = ALL;
+  optAll.textContent = placeholderLabel;
+  selectEl.appendChild(optAll);
 
-  // ✅ Fond sombre (CARTO Dark Matter)
+  values.forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = v;
+    selectEl.appendChild(opt);
+  });
+}
+
+function uniqueNonEmpty(values) {
+  return Array.from(new Set(values.map(v => String(v ?? "").trim()).filter(Boolean)));
+}
+
+function getFilters() {
+  const region = document.getElementById("regionSelect")?.value || ALL;
+  const nat = document.getElementById("natSelect")?.value || ALL;
+  const movement = document.getElementById("movementSelect")?.value || ALL;
+  return { region, nat, movement };
+}
+
+function rowMatchesFilters(row, { region, nat, movement }) {
+  // Nationalité “primaire” utilisée pour placer le marker
+  const coords = pickCoordsFromNationality(row.nationality);
+  const primaryNat = coords?.nat || null;
+  if (!primaryNat) return false;
+
+  const rowRegion = NATIONALITY_REGION[primaryNat] || null;
+  const rowMovement = String(row.genre ?? "").trim();
+
+  if (region !== ALL && rowRegion !== region) return false;
+  if (nat !== ALL && primaryNat !== nat) return false;
+  if (movement !== ALL && rowMovement !== movement) return false;
+
+  return true;
+}
+
+function clearMarkers() {
+  if (!layerGroup) return;
+  layerGroup.clearLayers();
+  CURRENT_MARKERS = [];
+}
+
+function fitToMarkers(markers) {
+  if (!markers.length) return;
+  const group = L.featureGroup(markers);
+  map.fitBounds(group.getBounds().pad(0.2));
+}
+
+// Construit un marker pour une row + lazy load photo
+function buildMarker(row) {
+  const coords = pickCoordsFromNationality(row.nationality);
+  if (!coords) return null;
+
+  // payload mutable (thumb lazy)
+  const payload = {
+    name: row.name,
+    genre: row.genre,
+    nationality: row.nationality,
+    years: row.years,
+    thumbUrl: null, // lazy
+    wikiUrl: row.wikipedia
+  };
+
+  const marker = L.marker([coords.lat, coords.lon], {
+    title: row.name || "",
+    icon: soberIcon
+  });
+
+  marker.bindTooltip(hoverHtml(payload), {
+    direction: "top",
+    opacity: 1,
+    offset: [0, -12],
+    className: "person-tooltip",
+    sticky: true
+  });
+
+  marker.bindPopup(cardHtml(payload), {
+    closeButton: true,
+    autoPan: true,
+    className: "person-popup"
+  });
+
+  async function ensureThumbAndRefresh() {
+    if (payload.thumbUrl !== null) return; // déjà résolu (url ou null)
+    const title = wikiTitleFromUrl(row.wikipedia);
+    const thumb = await fetchWikiThumbnail(title);
+    payload.thumbUrl = thumb; // peut rester null si pas de thumb
+
+    // refresh contenu tooltip/popup
+    marker.setTooltipContent(hoverHtml(payload));
+    marker.setPopupContent(cardHtml(payload));
+  }
+
+  // Hover (tooltip) — pas de pan
+  marker.on("mouseover", async () => {
+    if (PINNED_MARKER) return;
+    const pref = chooseTooltipDirection(map, marker.getLatLng());
+    marker.getTooltip().options.direction = pref.direction;
+    marker.getTooltip().options.offset = pref.offset;
+
+    marker.openTooltip();
+    ensureThumbAndRefresh();
+  });
+
+  marker.on("mouseout", () => {
+    if (!PINNED_MARKER) marker.closeTooltip();
+  });
+
+  // Click (popup pinnée)
+  marker.on("click", async (e) => {
+    L.DomEvent.stopPropagation(e);
+    marker.closeTooltip();
+
+    if (PINNED_MARKER && PINNED_MARKER !== marker) {
+      PINNED_MARKER.closePopup();
+    }
+
+    PINNED_MARKER = marker;
+    marker.openPopup();
+
+    ensureThumbAndRefresh();
+  });
+
+  marker.on("popupclose", () => {
+    if (PINNED_MARKER === marker) PINNED_MARKER = null;
+  });
+
+  return marker;
+}
+
+function renderWithFilters() {
+  const filters = getFilters();
+
+  // si popup pinnée, on la ferme pour éviter incohérences
+  if (PINNED_MARKER) {
+    PINNED_MARKER.closePopup();
+    PINNED_MARKER = null;
+  }
+
+  clearMarkers();
+
+  const filtered = ALL_ROWS.filter(r => rowMatchesFilters(r, filters));
+
+  filtered.forEach(row => {
+    const m = buildMarker(row);
+    if (!m) return;
+    m.addTo(layerGroup);
+    CURRENT_MARKERS.push(m);
+  });
+
+  fitToMarkers(CURRENT_MARKERS);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  // --- init map
+  map = L.map("map", { preferCanvas: true }).setView([20, 0], 2);
+
+  // Fond sombre
   L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
     subdomains: "abcd",
     maxZoom: 20,
     attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
   }).addTo(map);
 
-  // Clic sur la carte = unpin
+  layerGroup = L.layerGroup().addTo(map);
+
+  // clic sur carte = unpin
   map.on("click", () => {
     if (PINNED_MARKER) {
       PINNED_MARKER.closePopup();
@@ -174,97 +370,41 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  const markers = [];
+  // --- init selects
+  const regionSelect = document.getElementById("regionSelect");
+  const natSelect = document.getElementById("natSelect");
+  const movementSelect = document.getElementById("movementSelect");
 
+  // Région : on met la liste fixe, mais tu peux aussi la calculer dynamiquement
+  if (regionSelect) fillSelect(regionSelect, REGIONS, "Toutes");
+
+  // Nationalité : depuis NATIONALITY_COORDS (celles réellement cartographiées)
+  const natValues = Object.keys(NATIONALITY_COORDS)
+    .filter(k => NATIONALITY_COORDS[k] && Number.isFinite(NATIONALITY_COORDS[k].lat))
+    .sort((a, b) => a.localeCompare(b));
+  if (natSelect) fillSelect(natSelect, natValues, "Toutes");
+
+  // listeners filtres
+  const onChange = () => renderWithFilters();
+  regionSelect?.addEventListener("change", onChange);
+  natSelect?.addEventListener("change", onChange);
+  movementSelect?.addEventListener("change", onChange);
+
+  // --- load CSV once, build movement list, first render
   Papa.parse(CSV_PATH, {
     download: true,
     header: true,
-    dynamicTyping: true,
+    dynamicTyping: false,
     skipEmptyLines: true,
-    complete: async (res) => {
-      const rows = res.data || [];
+    complete: (res) => {
+      ALL_ROWS = (res.data || []).filter(r => r && r.name);
 
-      for (const row of rows) {
-        const coords = pickCoords(row.nationality);
-        if (!coords) continue;
+      // Courants artistiques : uniques depuis row.genre
+      const movements = uniqueNonEmpty(ALL_ROWS.map(r => r.genre)).sort((a, b) => a.localeCompare(b));
+      if (movementSelect) fillSelect(movementSelect, movements, "Tous");
 
-        const title = wikiTitleFromUrl(row.wikipedia);
-        const thumb = await fetchWikiThumbnail(title);
-
-        const payload = {
-          name: row.name,
-          genre: row.genre,
-          nationality: row.nationality,
-          years: row.years,
-          thumbUrl: thumb,
-          wikiUrl: row.wikipedia
-        };
-
-        const marker = L.marker([coords.lat, coords.lon], {
-          title: row.name || "",
-          icon: soberIcon
-        });
-
-        // ✅ Tooltip (survol) : pas d’auto-pan, placement ajusté dynamiquement
-        marker.bindTooltip(hoverHtml(payload), {
-          direction: "top",      // sera ajusté au mouseover
-          opacity: 1,
-          offset: [0, -12],
-          className: "person-tooltip",
-          sticky: true           // plus agréable au survol
-        });
-
-        // ✅ Popup (clic) : cliquable + autoPan OK
-        marker.bindPopup(cardHtml(payload), {
-          closeButton: true,
-          autoPan: true,
-          className: "person-popup"
-        });
-
-        // Hover: ouvrir tooltip seulement si rien n’est pinné
-        marker.on("mouseover", () => {
-          if (PINNED_MARKER) return;
-
-          // Ajuste top/bottom en fonction de la place
-          const pref = chooseTooltipDirection(map, marker.getLatLng());
-          marker.setTooltipContent(hoverHtml(payload)); // garde contenu
-          marker.getTooltip().options.direction = pref.direction;
-          marker.getTooltip().options.offset = pref.offset;
-
-          marker.openTooltip();
-        });
-
-        marker.on("mouseout", () => {
-          if (!PINNED_MARKER) marker.closeTooltip();
-        });
-
-        // Click: pin le popup (et ferme tooltip si ouvert)
-        marker.on("click", (e) => {
-          L.DomEvent.stopPropagation(e);
-
-          marker.closeTooltip();
-
-          if (PINNED_MARKER && PINNED_MARKER !== marker) {
-            PINNED_MARKER.closePopup();
-          }
-
-          PINNED_MARKER = marker;
-          marker.openPopup();
-        });
-
-        // Quand popup se ferme: unpin
-        marker.on("popupclose", () => {
-          if (PINNED_MARKER === marker) PINNED_MARKER = null;
-        });
-
-        marker.addTo(map);
-        markers.push(marker);
-      }
-
-      if (markers.length) {
-        const group = L.featureGroup(markers);
-        map.fitBounds(group.getBounds().pad(0.2));
-      }
+      // premier rendu
+      renderWithFilters();
     },
     error: (err) => console.error("Erreur CSV:", err)
   });

@@ -182,3 +182,23 @@ a.active .pill { background: rgba(110, 168, 254, 0.9); }
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
+
+.select{
+  background: rgba(255,255,255,0.04);
+  color: #e6edf3;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px;
+  padding: 10px 10px;
+  min-width: 200px;
+  outline: none;
+}
+
+.select:focus{
+  border-color: rgba(110,168,254,0.45);
+  box-shadow: 0 0 0 3px rgba(110,168,254,0.15);
+}
+
+.select option{
+  background: #0b0f14; /* important : menu lisible en dark */
+  color: #e6edf3;
+}
