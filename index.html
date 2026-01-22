@@ -3,8 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DataViz Explorer — Viz 1</title>
+  <title>DataViz Explorer — Cartes</title>
   <link rel="stylesheet" href="./datas/styles.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+
 </head>
 <body>
   <div class="app">
@@ -24,16 +28,19 @@
 
       <main class="content">
         <section class="card">
-          <h2>Visualisation 1</h2>
-          <p>
-            Zone réservée à la première dataviz (CSV fixe).  
-            On branchera D3 / Plotly / Chart.js ensuite.
-          </p>
+          <h2>Carte des artistes</h2>
+            <p style="margin:0 0 10px; opacity:.85;">
+              Placement approximatif par nationalité (capitale/centre). Survol = fiche artiste.
+            </p>
+          <div id="map" style="height:560px; border-radius:16px; overflow:hidden;"></div>
         </section>
       </main>
     </div>
   </div>
 
   <script src="./datas/app.js"></script>
+  <script src="./datas/vizMap.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 </body>
 </html>
