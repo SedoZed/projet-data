@@ -1,18 +1,14 @@
 // datas/viz2.js
-// Bubble network complet :
-// - bulles confinées dans le cadre (clamp)
-// - clusters par mouvement
-// - filtre mouvement + légende cliquable
-// - slider "min genres en commun" pour les liens
-// - recherche (highlight + recentrage)
-// - badge multi-genres
-// - taille = paintings OU popularité Wikipedia (pageviews 30j) (lazy/cache)
+// ✅ Multi-sélection des courants via la légende (chips)
+// - si aucune sélection => tous
+// - select = preset (remplace la sélection par un seul)
+// Tout le reste inchangé (bounds, clusters, slider liens, recherche, taille paintings/wiki)
 
 const CSV_PATH = "./datas/artists.csv";
 const ALL = "__ALL__";
 
 const UI = {
-  movementFilter: null,
+  movementFilter: null,      // preset
   minCommon: null,
   minCommonLabel: null,
   sizeMetric: null,
@@ -57,7 +53,7 @@ function wikiTitleFromUrl(url) {
     const u = new URL(url);
     const idx = u.pathname.indexOf("/wiki/");
     if (idx === -1) return null;
-    return decodeURIComponent(u.pathname.slice(idx + "/wiki/".length)); // garde underscores
+    return decodeURIComponent(u.pathname.slice(idx + "/wiki/".length));
   } catch {
     return null;
   }
@@ -74,7 +70,6 @@ async function fetchWikiViews30d(title) {
   if (!title) return null;
   if (WIKI_VIEWS_CACHE.has(title)) return WIKI_VIEWS_CACHE.get(title);
 
-  // période : aujourd'hui - 30 jours (API demande start/end)
   const end = new Date();
   const start = new Date(end.getTime() - 30 * 24 * 3600 * 1000);
 
@@ -83,7 +78,6 @@ async function fetchWikiViews30d(title) {
   const agent = "user";
   const granularity = "daily";
 
-  // endpoint Pageviews
   const endpoint =
     `https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/` +
     `${project}/${access}/${agent}/${encodeURIComponent(title)}/${granularity}/${yyyymmdd(start)}/${yyyymmdd(end)}`;
@@ -106,7 +100,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const container = document.getElementById("bubbleViz");
   if (!container) return;
 
-  // UI refs
   UI.movementFilter = document.getElementById("movementFilter");
   UI.minCommon = document.getElementById("minCommon");
   UI.minCommonLabel = document.getElementById("minCommonLabel");
@@ -139,7 +132,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     const nationalities = parseList(d.nationality);
     const primaryGenre = genres[0] || "Unknown";
     const paintings = +d.paintings || 0;
-
     const title = wikiTitleFromUrl(d.wikipedia);
 
     return {
@@ -149,25 +141,22 @@ document.addEventListener("DOMContentLoaded", async () => {
       wikipedia: d.wikipedia,
       wikiTitle: title,
       paintings,
-      // views 30d (lazy)
       wiki30d: null,
-      // lists
       genres,
       primaryGenre,
       nationalities,
-      // multi-genre indicator
       multi: genres.length > 1
     };
   });
 
-  // Palette / genres
+  // Domain genres
   const genreDomain = Array.from(new Set(raw.map(d => d.primaryGenre))).sort(d3.ascending);
 
-  // Couleurs
+  // Colors
   const palette = d3.schemeTableau10.concat(d3.schemeSet3, d3.schemePaired).flat();
   const color = d3.scaleOrdinal().domain(genreDomain).range(palette.slice(0, genreDomain.length));
 
-  // UI options
+  // Preset select
   function fillSelect(selectEl, values) {
     selectEl.innerHTML = "";
     const optAll = document.createElement("option");
@@ -182,18 +171,24 @@ document.addEventListener("DOMContentLoaded", async () => {
       selectEl.appendChild(opt);
     });
   }
-
   fillSelect(UI.movementFilter, genreDomain);
 
-  // slider max = 3 par défaut, mais on adapte à ton dataset (max genres communs possible)
-  // (tu peux augmenter si tu veux, mais 1..3 est souvent suffisant)
   UI.minCommonLabel.textContent = UI.minCommon.value;
 
-  // Légende cliquable
-  let legendActive = ALL;
+  // ✅ Multi sélection via chips
+  const selectedGenres = new Set(); // vide => tous
+
+  function isAllSelected() {
+    return selectedGenres.size === 0;
+  }
+
   function renderLegend() {
     UI.legend.innerHTML = "";
+
     genreDomain.forEach(g => {
+      const selected = selectedGenres.has(g);
+      const active = isAllSelected() || selected;
+
       const btn = document.createElement("button");
       btn.className = "select";
       btn.style.cursor = "pointer";
@@ -202,17 +197,25 @@ document.addEventListener("DOMContentLoaded", async () => {
       btn.style.display = "inline-flex";
       btn.style.alignItems = "center";
       btn.style.gap = "8px";
-      btn.style.opacity = (legendActive === ALL || legendActive === g) ? "1" : "0.55";
+
+      // style état
+      btn.style.opacity = active ? "1" : "0.45";
+      btn.style.borderColor = selected ? "rgba(110,168,254,0.45)" : "rgba(255,255,255,0.10)";
+      btn.style.boxShadow = selected ? "0 0 0 3px rgba(110,168,254,0.12)" : "none";
 
       btn.innerHTML = `
-        <span style="width:10px;height:10px;border-radius:999px;background:${color(g)};opacity:.8;display:inline-block;"></span>
+        <span style="width:10px;height:10px;border-radius:999px;background:${color(g)};opacity:.85;display:inline-block;"></span>
         <span>${escapeHtml(g)}</span>
       `;
 
+      // ✅ toggle multi-sélection
       btn.addEventListener("click", () => {
-        legendActive = (legendActive === g) ? ALL : g;
-        // synchro sur le select
-        UI.movementFilter.value = legendActive;
+        if (selectedGenres.has(g)) selectedGenres.delete(g);
+        else selectedGenres.add(g);
+
+        // si on sélectionne via legend, le select repasse sur "Tous"
+        UI.movementFilter.value = ALL;
+
         renderLegend();
         rebuild();
       });
@@ -228,30 +231,23 @@ document.addEventListener("DOMContentLoaded", async () => {
   let links = [];
   let simulation = null;
 
-  // size metric
   function getMetricKey() {
     return UI.sizeMetric.value; // paintings | wiki30d
   }
 
-  // compute radii
   function computeRadiusScale(currNodes) {
     const metric = getMetricKey();
     const values = currNodes.map(d => (metric === "paintings" ? d.paintings : (d.wiki30d ?? 0)));
     const maxV = d3.max(values) || 1;
 
-    return d3.scaleSqrt()
-      .domain([0, maxV])
-      .range([10, 62]);
+    return d3.scaleSqrt().domain([0, maxV]).range([10, 62]);
   }
 
-  // cluster centers (one per genre around a circle)
   function computeCenters(width, height) {
-    const R = Math.min(width, height) * 0.26; // rayon du cercle de centres
+    const R = Math.min(width, height) * 0.26;
     const cx = width / 2, cy = height / 2;
 
-    const angle = d3.scalePoint()
-      .domain(genreDomain)
-      .range([0, Math.PI * 2]);
+    const angle = d3.scalePoint().domain(genreDomain).range([0, Math.PI * 2]);
 
     const centers = new Map();
     genreDomain.forEach(g => {
@@ -261,33 +257,25 @@ document.addEventListener("DOMContentLoaded", async () => {
     return centers;
   }
 
-  // build links based on threshold and current node set
   function buildLinks(currNodes, minCommon) {
-    const byId = new Map(currNodes.map(d => [d.id, d]));
     const out = [];
-
     for (let i = 0; i < currNodes.length; i++) {
       for (let j = i + 1; j < currNodes.length; j++) {
         const a = currNodes[i];
         const b = currNodes[j];
         const common = intersectCount(a.genres, b.genres);
-        if (common >= minCommon) {
-          out.push({ source: a.id, target: b.id, common });
-        }
+        if (common >= minCommon) out.push({ source: a.id, target: b.id, common });
       }
     }
 
-    // build adjacency for highlight
     const adj = new Map();
     const key = (x, y) => (x < y ? `${x}__${y}` : `${y}__${x}`);
     out.forEach(l => adj.set(key(l.source, l.target), l.common));
-
     const isLinked = (A, B) => A.id === B.id || adj.has(key(A.id, B.id));
 
-    return { links: out, isLinked, byId };
+    return { links: out, isLinked };
   }
 
-  // tooltip
   function showTooltip(event, d) {
     const metric = getMetricKey();
     const metricLabel = metric === "paintings" ? "Œuvres (paintings)" : "Popularité Wiki (30j)";
@@ -329,15 +317,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     tooltip.style.display = "none";
   }
 
-  // search highlight
   let focusedId = null;
   function applySearchFocus() {
     const q = (UI.searchName.value || "").trim().toLowerCase();
-    if (!q) {
-      focusedId = null;
-      return null;
-    }
-    // meilleur match simple : includes
+    if (!q) { focusedId = null; return null; }
     const found = nodes.find(n => (n.name || "").toLowerCase().includes(q));
     focusedId = found?.id ?? null;
     return found || null;
@@ -356,11 +339,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, 900);
   }
 
-  // Lazy fetch wiki views when metric=wiki30d
   async function ensureViewsForNodes(currNodes) {
-    // charge en “petits lots” pour ne pas saturer
     const toLoad = currNodes.filter(d => d.wiki30d === null && d.wikiTitle);
-    const batch = toLoad.slice(0, 10); // 10 à la fois
+    const batch = toLoad.slice(0, 10);
     if (!batch.length) return false;
 
     await Promise.all(batch.map(async d => {
@@ -371,47 +352,46 @@ document.addEventListener("DOMContentLoaded", async () => {
     return true;
   }
 
-  // Core rebuild
+  function matchesMovement(d) {
+    // ✅ priorité : multi-sélection via légende
+    if (!isAllSelected()) return selectedGenres.has(d.primaryGenre);
+
+    // ✅ sinon : preset select
+    const preset = UI.movementFilter.value;
+    return preset === ALL ? true : d.primaryGenre === preset;
+  }
+
   async function rebuild() {
     const { width, height } = getSize();
     svg.attr("width", width).attr("height", height);
 
-    const movement = UI.movementFilter.value;
     const minCommon = +UI.minCommon.value;
     const metric = getMetricKey();
 
-    // filter nodes
-    nodes = nodesAll.filter(d => movement === ALL ? true : d.primaryGenre === movement);
+    // Filter nodes
+    nodes = nodesAll.filter(matchesMovement);
 
-    // if metric is wiki30d, lazily fetch some views then rebuild scale
+    // Lazy wiki views
     if (metric === "wiki30d") {
-      // On tente quelques batches successifs pour que ça se remplisse vite
-      // sans bloquer l’UI.
       const didLoad = await ensureViewsForNodes(nodes);
-      if (didLoad) {
-        // On relance une fois après chargement pour que les rayons se mettent à jour
-        // (sans boucle infinie : on ne recharge que si il y a encore des null)
-        setTimeout(() => rebuild(), 50);
-      }
+      if (didLoad) setTimeout(() => rebuild(), 50);
     }
 
-    // radius scale based on current filtered nodes
+    // Radius
     const rScale = computeRadiusScale(nodes);
     nodes.forEach(d => { d.r = rScale(metric === "paintings" ? d.paintings : (d.wiki30d ?? 0)); });
 
-    // build links based on threshold
+    // Links
     const built = buildLinks(nodes, minCommon);
     links = built.links;
     const isLinked = built.isLinked;
 
-    // stats
     UI.stats.textContent = `${nodes.length} artistes — ${links.length} liens`;
 
-    // centers per genre (clusters)
+    // Centers for clusters
     const centers = computeCenters(width, height);
 
-    // DATA JOINS
-    // Links
+    // Links join
     const linkSel = gLinks.selectAll("line")
       .data(links, d => `${d.source}__${d.target}`);
 
@@ -424,7 +404,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const linkAll = linkEnter.merge(linkSel)
       .attr("stroke-width", d => Math.min(3, 0.6 + d.common * 0.6));
 
-    // Nodes as groups (circle + badge)
+    // Nodes join (group)
     const nodeSel = gNodes.selectAll("g.node")
       .data(nodes, d => d.id);
 
@@ -434,13 +414,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       .attr("class", "node")
       .style("cursor", "default");
 
-    nodeEnter.append("circle")
-      .attr("class", "bubble");
-
-    nodeEnter.append("circle")
-      .attr("class", "badge")
-      .attr("r", 4)
-      .attr("opacity", 0); // visible only if multi
+    nodeEnter.append("circle").attr("class", "bubble");
+    nodeEnter.append("circle").attr("class", "badge").attr("r", 4).attr("opacity", 0);
 
     const nodeAll = nodeEnter.merge(nodeSel);
 
@@ -458,7 +433,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       .attr("stroke", "rgba(0,0,0,0.35)")
       .attr("stroke-width", 1);
 
-    // Labels TOUJOURS visibles
+    // Labels always
     const labelSel = gLabels.selectAll("text")
       .data(nodes, d => d.id);
 
@@ -478,30 +453,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     // Drag
     const drag = d3.drag()
       .on("start", (event, d) => {
-        if (!event.active) simulation.alphaTarget(0.25).restart();
+        if (!event.active) simulation?.alphaTarget(0.25).restart();
         d.fx = d.x; d.fy = d.y;
       })
       .on("drag", (event, d) => {
         d.fx = event.x; d.fy = event.y;
       })
       .on("end", (event, d) => {
-        if (!event.active) simulation.alphaTarget(0);
+        if (!event.active) simulation?.alphaTarget(0);
         d.fx = null; d.fy = null;
       });
 
     nodeAll.call(drag);
 
-    // Hover highlight
+    // Highlight
     function highlight(d) {
-      // nodes
       nodeAll.select("circle.bubble")
         .attr("fill-opacity", n => isLinked(d, n) ? 0.35 : 0.06)
         .attr("stroke-opacity", n => isLinked(d, n) ? 0.95 : 0.15);
 
-      // links
       linkAll.attr("opacity", l => (l.source.id === d.id || l.target.id === d.id) ? 0.35 : 0.03);
 
-      // labels
       labelAll.attr("opacity", n => isLinked(d, n) ? 0.95 : 0.25);
     }
 
@@ -519,17 +491,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       .on("mousemove", (event) => moveTooltip(event))
       .on("mouseleave", () => { resetHighlight(); hideTooltip(); });
 
-    // --- Simulation init/update
-    if (simulation) simulation.stop();
-
+    // (re)start simulation
+    simulation?.stop();
     simulation = d3.forceSimulation(nodes)
       .force("charge", d3.forceManyBody().strength(-18))
       .force("collision", d3.forceCollide().radius(d => d.r + 2).iterations(2))
       .force("center", d3.forceCenter(width / 2, height / 2))
-      // cluster par mouvement principal
       .force("x", d3.forceX(d => centers.get(d.primaryGenre)?.x ?? (width / 2)).strength(0.12))
       .force("y", d3.forceY(d => centers.get(d.primaryGenre)?.y ?? (height / 2)).strength(0.12))
-      // liens entre artistes “proches”
       .force("link", d3.forceLink(links)
         .id(d => d.id)
         .distance(l => 26 + (1 / l.common) * 18)
@@ -537,28 +506,24 @@ document.addEventListener("DOMContentLoaded", async () => {
       );
 
     simulation.on("tick", () => {
-      // ✅ Keep in bounds (clamp) — empêche les bulles de sortir
+      // keep in bounds
       nodes.forEach(d => {
         d.x = Math.max(d.r, Math.min(width - d.r, d.x));
         d.y = Math.max(d.r, Math.min(height - d.r, d.y));
       });
 
-      // links
       linkAll
         .attr("x1", d => d.source.x)
         .attr("y1", d => d.source.y)
         .attr("x2", d => d.target.x)
         .attr("y2", d => d.target.y);
 
-      // node group positions
       nodeAll.attr("transform", d => `translate(${d.x},${d.y})`);
 
-      // badge position (coin haut-droit)
       nodeAll.select("circle.badge")
         .attr("cx", d => Math.max(-d.r + 8, d.r - 8))
         .attr("cy", d => Math.max(-d.r + 8, -d.r + 8));
 
-      // labels
       labelAll
         .attr("x", d => d.x)
         .attr("y", d => d.y + 4);
@@ -566,12 +531,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     simulation.alpha(0.9).restart();
 
-    // Apply search focus after rebuild
+    // Search focus
     const focusNode = applySearchFocus();
     if (focusNode) {
       const n = nodes.find(x => x.id === focusNode.id);
       if (n) {
-        // highlight it briefly
         highlight(n);
         pinToCenterTemporarily(n);
         setTimeout(() => resetHighlight(), 1200);
@@ -583,22 +547,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   UI.minCommon.addEventListener("input", () => {
     UI.minCommonLabel.textContent = UI.minCommon.value;
   });
-
   UI.minCommon.addEventListener("change", () => rebuild());
 
+  // Select preset => remplace la multi-sélection par 0 (tous) ou 1 genre
   UI.movementFilter.addEventListener("change", () => {
-    legendActive = UI.movementFilter.value;
+    const v = UI.movementFilter.value;
+    selectedGenres.clear();
+    if (v !== ALL) selectedGenres.add(v);
     renderLegend();
     rebuild();
   });
 
   UI.sizeMetric.addEventListener("change", () => rebuild());
-
-  UI.searchName.addEventListener("input", () => {
-    // pas besoin de rebuild complet : on peut juste focus si existant
-    // mais comme les forces peuvent changer avec le filtre, on rebuild léger
-    rebuild();
-  });
+  UI.searchName.addEventListener("input", () => rebuild());
 
   UI.resetBtn.addEventListener("click", () => {
     UI.movementFilter.value = ALL;
@@ -606,14 +567,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     UI.minCommonLabel.textContent = "1";
     UI.sizeMetric.value = "paintings";
     UI.searchName.value = "";
-    legendActive = ALL;
+    selectedGenres.clear();
     renderLegend();
     rebuild();
   });
 
-  // resize
   window.addEventListener("resize", () => rebuild());
 
-  // first build
   await rebuild();
 });
