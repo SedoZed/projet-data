@@ -3,31 +3,31 @@
 const CSV_PATH = "./datas/artists.csv";
 
 // Coordonnées "représentatives" par nationalité (capitale / centre).
-// (Tu peux ajuster / compléter si besoin.)
 const NATIONALITY_COORDS = {
-  Italian:   { lat: 41.9028, lon: 12.4964 },   // Rome
-  French:    { lat: 48.8566, lon: 2.3522 },    // Paris
-  Belgian:   { lat: 50.8503, lon: 4.3517 },    // Bruxelles
-  Flemish:   { lat: 50.8503, lon: 4.3517 },    // (Belgique)
-  Dutch:     { lat: 52.3676, lon: 4.9041 },    // Amsterdam
-  Spanish:   { lat: 40.4168, lon: -3.7038 },   // Madrid
-  Russian:   { lat: 55.7558, lon: 37.6173 },   // Moscou
-  Mexican:   { lat: 19.4326, lon: -99.1332 },  // Mexico City
-  German:    { lat: 52.5200, lon: 13.4050 },   // Berlin
-  Austrian:  { lat: 48.2082, lon: 16.3738 },   // Vienne
-  Swiss:     { lat: 46.9480, lon: 7.4474 },    // Berne
-  British:   { lat: 51.5072, lon: -0.1276 },   // Londres
-  Norwegian: { lat: 59.9139, lon: 10.7522 },   // Oslo
-  American:  { lat: 38.9072, lon: -77.0369 },  // Washington DC
+  Italian:   { lat: 41.9028, lon: 12.4964 },
+  French:    { lat: 48.8566, lon: 2.3522 },
+  Belgian:   { lat: 50.8503, lon: 4.3517 },
+  Flemish:   { lat: 50.8503, lon: 4.3517 },
+  Dutch:     { lat: 52.3676, lon: 4.9041 },
+  Spanish:   { lat: 40.4168, lon: -3.7038 },
+  Russian:   { lat: 55.7558, lon: 37.6173 },
+  Mexican:   { lat: 19.4326, lon: -99.1332 },
+  German:    { lat: 52.5200, lon: 13.4050 },
+  Austrian:  { lat: 48.2082, lon: 16.3738 },
+  Swiss:     { lat: 46.9480, lon: 7.4474 },
+  British:   { lat: 51.5072, lon: -0.1276 },
+  Norwegian: { lat: 59.9139, lon: 10.7522 },
+  American:  { lat: 38.9072, lon: -77.0369 },
 
-  // Nationalités parfois présentes en “secondaires”
-  Greek:     { lat: 37.9838, lon: 23.7275 },   // Athènes
-  Belarusian:{ lat: 53.9006, lon: 27.5590 },   // Minsk
-  Jewish:    null // pas une localisation géographique -> ignorée
+  Greek:     { lat: 37.9838, lon: 23.7275 },
+  Belarusian:{ lat: 53.9006, lon: 27.5590 },
+  Jewish:    null
 };
 
-// Cache des thumbnails Wikipedia (évite de re-fetch)
 const WIKI_THUMB_CACHE = new Map();
+
+// ✅ état pour gérer popup “pinnée”
+let PINNED_MARKER = null;
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -38,11 +38,9 @@ function escapeHtml(s) {
     .replaceAll("'", "&#039;");
 }
 
-// Prend la valeur "French,British" => essaie French puis British etc.
 function pickCoords(nationalityRaw) {
   if (!nationalityRaw) return null;
   const parts = String(nationalityRaw).split(",").map(s => s.trim()).filter(Boolean);
-
   for (const p of parts) {
     const coords = NATIONALITY_COORDS[p];
     if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lon)) return coords;
@@ -50,27 +48,24 @@ function pickCoords(nationalityRaw) {
   return null;
 }
 
-// Extrait le "title" de l’URL Wikipedia (…/wiki/Claude_Monet)
 function wikiTitleFromUrl(url) {
   try {
     const u = new URL(url);
     const idx = u.pathname.indexOf("/wiki/");
     if (idx === -1) return null;
-    const title = u.pathname.slice(idx + "/wiki/".length);
-    return decodeURIComponent(title); // garde underscores
+    return decodeURIComponent(u.pathname.slice(idx + "/wiki/".length));
   } catch {
     return null;
   }
 }
 
-// API REST Wikipedia: summary => contient souvent thumbnail.source
 async function fetchWikiThumbnail(title) {
   if (!title) return null;
   if (WIKI_THUMB_CACHE.has(title)) return WIKI_THUMB_CACHE.get(title);
 
   const endpoint = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
   try {
-    const r = await fetch(endpoint, { headers: { "accept": "application/json" } });
+    const r = await fetch(endpoint, { headers: { accept: "application/json" } });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const j = await r.json();
     const thumb = j?.thumbnail?.source || null;
@@ -89,25 +84,28 @@ function popupHtml({ name, genre, nationality, years, thumbUrl, wikiUrl }) {
   const safeYears = escapeHtml(years);
   const safeWiki = escapeHtml(wikiUrl || "");
 
+  // ✅ contain = pas de rognage, fond + padding
   const img = thumbUrl
-    ? `<img src="${escapeHtml(thumbUrl)}" alt="${safeName}" style="width:100%;height:120px;object-fit:cover;">`
-    : `<div style="display:flex;align-items:center;justify-content:center;height:120px;opacity:.7;">(pas de photo)</div>`;
+    ? `<img src="${escapeHtml(thumbUrl)}" alt="${safeName}"
+         style="width:100%;height:100%;object-fit:contain;display:block;padding:6px;background:rgba(255,255,255,0.04);">`
+    : `<div style="display:flex;align-items:center;justify-content:center;height:100%;opacity:.7;">(pas de photo)</div>`;
 
   const wikiLine = safeWiki
-    ? `<div style="margin-top:6px; font-size:12px; opacity:.8;">
-         <a href="${safeWiki}" target="_blank" rel="noopener noreferrer" style="color:#9ecbff; text-decoration:none;">
-           Wikipedia
+    ? `<div style="margin-top:8px;font-size:12px;opacity:.9;">
+         <a href="${safeWiki}" target="_blank" rel="noopener noreferrer"
+            style="color:#9ecbff;text-decoration:none;">
+           Ouvrir Wikipedia
          </a>
        </div>`
     : "";
 
   return `
-    <div style="width:230px;">
-      <div style="width:100%; height:120px; border-radius:12px; overflow:hidden; background:rgba(255,255,255,0.06); margin-bottom:8px;">
+    <div style="width:240px;">
+      <div style="width:100%; height:140px; border-radius:12px; overflow:hidden; background:rgba(255,255,255,0.03); margin-bottom:10px;">
         ${img}
       </div>
       <div style="font-weight:800; margin-bottom:6px;">${safeName}</div>
-      <div style="font-size:12px; line-height:1.4; opacity:.9;">
+      <div style="font-size:12px; line-height:1.45; opacity:.92;">
         <div><b>Genre (artistique):</b> ${safeGenre || "—"}</div>
         <div><b>Nationalité:</b> ${safeNat || "—"}</div>
         <div><b>Années:</b> ${safeYears || "—"}</div>
@@ -117,6 +115,21 @@ function popupHtml({ name, genre, nationality, years, thumbUrl, wikiUrl }) {
   `;
 }
 
+// ✅ pin “sobre” : petit point avec halo
+const soberIcon = L.divIcon({
+  className: "", // pas de style Leaflet par défaut
+  html: `
+    <div style="
+      width:12px;height:12px;border-radius:999px;
+      background: rgba(255,255,255,0.85);
+      box-shadow: 0 0 0 4px rgba(255,255,255,0.12);
+      border: 1px solid rgba(0,0,0,0.25);
+    "></div>
+  `,
+  iconSize: [12, 12],
+  iconAnchor: [6, 6]
+});
+
 document.addEventListener("DOMContentLoaded", () => {
   const map = L.map("map", { preferCanvas: true }).setView([20, 0], 2);
 
@@ -124,6 +137,14 @@ document.addEventListener("DOMContentLoaded", () => {
     maxZoom: 18,
     attribution: "&copy; OpenStreetMap contributors"
   }).addTo(map);
+
+  // ✅ clic sur la carte = unpin
+  map.on("click", () => {
+    if (PINNED_MARKER) {
+      PINNED_MARKER.closePopup();
+      PINNED_MARKER = null;
+    }
+  });
 
   const markers = [];
 
@@ -142,7 +163,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const title = wikiTitleFromUrl(row.wikipedia);
         const thumb = await fetchWikiThumbnail(title);
 
-        const marker = L.marker([coords.lat, coords.lon], { title: row.name || "" });
+        const marker = L.marker([coords.lat, coords.lon], {
+          title: row.name || "",
+          icon: soberIcon
+        });
 
         marker.bindPopup(
           popupHtml({
@@ -153,12 +177,41 @@ document.addEventListener("DOMContentLoaded", () => {
             thumbUrl: thumb,
             wikiUrl: row.wikipedia
           }),
-          { closeButton: false, autoPan: true, className: "person-popup" }
+          {
+            closeButton: true,   // ✅ comme ça on peut fermer “proprement”
+            autoPan: true,
+            className: "person-popup"
+          }
         );
 
-        // Survol => open ; sortie => close
-        marker.on("mouseover", () => marker.openPopup());
-        marker.on("mouseout", () => marker.closePopup());
+        // ✅ Survol : seulement si rien n’est “pinné”
+        marker.on("mouseover", () => {
+          if (!PINNED_MARKER) marker.openPopup();
+        });
+
+        // ✅ Sortie : seulement si rien n’est “pinné”
+        marker.on("mouseout", () => {
+          if (!PINNED_MARKER) marker.closePopup();
+        });
+
+        // ✅ Clic : pin la popup (reste ouverte, on peut cliquer le lien)
+        marker.on("click", (e) => {
+          // Empêche le map click de fermer immédiatement
+          L.DomEvent.stopPropagation(e);
+
+          // Si un autre marker était pinné, ferme-le
+          if (PINNED_MARKER && PINNED_MARKER !== marker) {
+            PINNED_MARKER.closePopup();
+          }
+
+          PINNED_MARKER = marker;
+          marker.openPopup();
+        });
+
+        // ✅ Si on ferme la popup via la croix, on “unpin”
+        marker.on("popupclose", () => {
+          if (PINNED_MARKER === marker) PINNED_MARKER = null;
+        });
 
         marker.addTo(map);
         markers.push(marker);
