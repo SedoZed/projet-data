@@ -202,3 +202,20 @@ a.active .pill { background: rgba(110, 168, 254, 0.9); }
   background: #0b0f14; /* important : menu lisible en dark */
   color: #e6edf3;
 }
+
+.dv-tooltip{
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  background: rgba(11,15,20,.96);
+  color: #e6edf3;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 14px;
+  padding: 10px 12px;
+  max-width: 280px;
+  white-space: normal;
+  overflow-wrap: break-word;
+  box-shadow: 0 12px 30px rgba(0,0,0,.35);
+  font-size: 12px;
+  line-height: 1.35;
+}
