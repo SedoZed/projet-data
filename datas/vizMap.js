@@ -25,8 +25,6 @@ const NATIONALITY_COORDS = {
 };
 
 const WIKI_THUMB_CACHE = new Map();
-
-// ✅ état pour gérer popup “pinnée”
 let PINNED_MARKER = null;
 
 function escapeHtml(s) {
@@ -84,7 +82,7 @@ function popupHtml({ name, genre, nationality, years, thumbUrl, wikiUrl }) {
   const safeYears = escapeHtml(years);
   const safeWiki = escapeHtml(wikiUrl || "");
 
-  // ✅ contain = pas de rognage, fond + padding
+  // ✅ contain => pas rognée
   const img = thumbUrl
     ? `<img src="${escapeHtml(thumbUrl)}" alt="${safeName}"
          style="width:100%;height:100%;object-fit:contain;display:block;padding:6px;background:rgba(255,255,255,0.04);">`
@@ -115,22 +113,8 @@ function popupHtml({ name, genre, nationality, years, thumbUrl, wikiUrl }) {
   `;
 }
 
-// ✅ pin “sobre” : petit point avec halo
-const soberIcon = L.divIcon({
-  className: "", // pas de style Leaflet par défaut
-  html: `
-    <div style="
-      width:12px;height:12px;border-radius:999px;
-      background: rgba(255,255,255,0.85);
-      box-shadow: 0 0 0 4px rgba(255,255,255,0.12);
-      border: 1px solid rgba(0,0,0,0.25);
-    "></div>
-  `,
-  iconSize: [12, 12],
-  iconAnchor: [6, 6]
-});
-
 document.addEventListener("DOMContentLoaded", () => {
+  // ⚠️ Assure-toi que Leaflet est chargé AVANT ce fichier
   const map = L.map("map", { preferCanvas: true }).setView([20, 0], 2);
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -138,7 +122,22 @@ document.addEventListener("DOMContentLoaded", () => {
     attribution: "&copy; OpenStreetMap contributors"
   }).addTo(map);
 
-  // ✅ clic sur la carte = unpin
+  // ✅ Pin “sobre” (créé ici = L existe forcément)
+  const soberIcon = L.divIcon({
+    className: "",
+    html: `
+      <div style="
+        width:12px;height:12px;border-radius:999px;
+        background: rgba(255,255,255,0.85);
+        box-shadow: 0 0 0 4px rgba(255,255,255,0.12);
+        border: 1px solid rgba(0,0,0,0.25);
+      "></div>
+    `,
+    iconSize: [12, 12],
+    iconAnchor: [6, 6]
+  });
+
+  // ✅ clic sur la carte = fermer la popup “pinnée”
   map.on("click", () => {
     if (PINNED_MARKER) {
       PINNED_MARKER.closePopup();
@@ -178,37 +177,31 @@ document.addEventListener("DOMContentLoaded", () => {
             wikiUrl: row.wikipedia
           }),
           {
-            closeButton: true,   // ✅ comme ça on peut fermer “proprement”
+            closeButton: true,
             autoPan: true,
             className: "person-popup"
           }
         );
 
-        // ✅ Survol : seulement si rien n’est “pinné”
+        // ✅ Survol: on ouvre seulement si rien n’est pinné
         marker.on("mouseover", () => {
           if (!PINNED_MARKER) marker.openPopup();
         });
 
-        // ✅ Sortie : seulement si rien n’est “pinné”
         marker.on("mouseout", () => {
           if (!PINNED_MARKER) marker.closePopup();
         });
 
-        // ✅ Clic : pin la popup (reste ouverte, on peut cliquer le lien)
-        marker.on("click", (e) => {
-          // Empêche le map click de fermer immédiatement
-          L.DomEvent.stopPropagation(e);
-
-          // Si un autre marker était pinné, ferme-le
+        // ✅ Clic: on “pin” (et on empêche le click map de fermer)
+        marker.on("click", () => {
+          // ferme l’éventuel ancien “pin”
           if (PINNED_MARKER && PINNED_MARKER !== marker) {
             PINNED_MARKER.closePopup();
           }
-
           PINNED_MARKER = marker;
           marker.openPopup();
         });
 
-        // ✅ Si on ferme la popup via la croix, on “unpin”
         marker.on("popupclose", () => {
           if (PINNED_MARKER === marker) PINNED_MARKER = null;
         });
