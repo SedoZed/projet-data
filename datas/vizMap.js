@@ -1,5 +1,6 @@
 // datas/vizMap.js
-// Carte sombre + tooltip/popup + filtres région / nationalité / courant (genre)
+// Carte sombre + tooltip/popup + filtres région / nationalité / courant
+// ✅ Corrige les genres multi-valeurs (ex: "expressionism,abstractionism") : split + filtre "contient"
 
 const CSV_PATH = "./datas/artists.csv";
 
@@ -26,7 +27,7 @@ const NATIONALITY_COORDS = {
   Jewish:    null
 };
 
-// Mapping nationalité -> région (tu peux compléter)
+// Mapping nationalité -> région (à compléter au besoin)
 const NATIONALITY_REGION = {
   Italian: "Europe",
   French: "Europe",
@@ -41,10 +42,9 @@ const NATIONALITY_REGION = {
   Norwegian: "Europe",
   Greek: "Europe",
   Belarusian: "Europe",
-  Russian: "Europe", // (selon choix, parfois Europe/Asie — on le met Europe ici)
+  Russian: "Europe",
   American: "Amérique du Nord",
   Mexican: "Amérique du Nord"
-  // Asie / Afrique / Océanie / Amérique du Sud : à ajouter si tu ajoutes ces nationalités
 };
 
 const REGIONS = [
@@ -74,10 +74,22 @@ function escapeHtml(s) {
     .replaceAll("'", "&#039;");
 }
 
+// ✅ Parse genres multi-valeurs (normalisé en minuscules)
+function parseGenres(raw) {
+  if (!raw) return [];
+  return String(raw)
+    .split(",")
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function uniqueNonEmpty(values) {
+  return Array.from(new Set(values.map(v => String(v ?? "").trim()).filter(Boolean)));
+}
+
 function pickPrimaryNationality(nationalityRaw) {
   if (!nationalityRaw) return null;
   const parts = String(nationalityRaw).split(",").map(s => s.trim()).filter(Boolean);
-  // Choisit la première nationalité qui a des coords
   for (const p of parts) {
     const coords = NATIONALITY_COORDS[p];
     if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lon)) return p;
@@ -178,7 +190,7 @@ const soberIcon = L.divIcon({
   iconAnchor: [6, 6]
 });
 
-// “Smart” top/bottom pour tooltip
+// Tooltip top/bottom selon place
 function chooseTooltipDirection(map, latlng) {
   const size = map.getSize();
   const p = map.latLngToContainerPoint(latlng);
@@ -199,35 +211,34 @@ function fillSelect(selectEl, values, placeholderLabel) {
 
   values.forEach(v => {
     const opt = document.createElement("option");
-    opt.value = v;
-    opt.textContent = v;
+    opt.value = v;          // pour mouvement on stocke en lower-case
+    opt.textContent = v;    // affichage tel quel (lower-case). Tu peux prettify si tu veux.
     selectEl.appendChild(opt);
   });
-}
-
-function uniqueNonEmpty(values) {
-  return Array.from(new Set(values.map(v => String(v ?? "").trim()).filter(Boolean)));
 }
 
 function getFilters() {
   const region = document.getElementById("regionSelect")?.value || ALL;
   const nat = document.getElementById("natSelect")?.value || ALL;
-  const movement = document.getElementById("movementSelect")?.value || ALL;
+  const movement = document.getElementById("movementSelect")?.value || ALL; // lower-case
   return { region, nat, movement };
 }
 
 function rowMatchesFilters(row, { region, nat, movement }) {
-  // Nationalité “primaire” utilisée pour placer le marker
   const coords = pickCoordsFromNationality(row.nationality);
   const primaryNat = coords?.nat || null;
   if (!primaryNat) return false;
 
   const rowRegion = NATIONALITY_REGION[primaryNat] || null;
-  const rowMovement = String(row.genre ?? "").trim();
+
+  // ✅ genres individuels (lower-case)
+  const rowMovements = parseGenres(row.genre);
 
   if (region !== ALL && rowRegion !== region) return false;
   if (nat !== ALL && primaryNat !== nat) return false;
-  if (movement !== ALL && rowMovement !== movement) return false;
+
+  // ✅ contient au lieu de égalité
+  if (movement !== ALL && !rowMovements.includes(movement)) return false;
 
   return true;
 }
@@ -244,14 +255,14 @@ function fitToMarkers(markers) {
   map.fitBounds(group.getBounds().pad(0.2));
 }
 
-// Construit un marker pour une row + lazy load photo
+// Construit un marker + lazy load photo
 function buildMarker(row) {
   const coords = pickCoordsFromNationality(row.nationality);
   if (!coords) return null;
 
-  // payload mutable (thumb lazy)
   const payload = {
     name: row.name,
+    // conserve genre brut pour l'affichage carte (comme dans le CSV)
     genre: row.genre,
     nationality: row.nationality,
     years: row.years,
@@ -282,16 +293,15 @@ function buildMarker(row) {
     if (payload.thumbUrl !== null) return; // déjà résolu (url ou null)
     const title = wikiTitleFromUrl(row.wikipedia);
     const thumb = await fetchWikiThumbnail(title);
-    payload.thumbUrl = thumb; // peut rester null si pas de thumb
+    payload.thumbUrl = thumb; // peut rester null
 
-    // refresh contenu tooltip/popup
     marker.setTooltipContent(hoverHtml(payload));
     marker.setPopupContent(cardHtml(payload));
   }
 
-  // Hover (tooltip) — pas de pan
   marker.on("mouseover", async () => {
     if (PINNED_MARKER) return;
+
     const pref = chooseTooltipDirection(map, marker.getLatLng());
     marker.getTooltip().options.direction = pref.direction;
     marker.getTooltip().options.offset = pref.offset;
@@ -304,7 +314,6 @@ function buildMarker(row) {
     if (!PINNED_MARKER) marker.closeTooltip();
   });
 
-  // Click (popup pinnée)
   marker.on("click", async (e) => {
     L.DomEvent.stopPropagation(e);
     marker.closeTooltip();
@@ -329,7 +338,6 @@ function buildMarker(row) {
 function renderWithFilters() {
   const filters = getFilters();
 
-  // si popup pinnée, on la ferme pour éviter incohérences
   if (PINNED_MARKER) {
     PINNED_MARKER.closePopup();
     PINNED_MARKER = null;
@@ -350,10 +358,10 @@ function renderWithFilters() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  // --- init map
+  // init map
   map = L.map("map", { preferCanvas: true }).setView([20, 0], 2);
 
-  // Fond sombre
+  // fond sombre
   L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
     subdomains: "abcd",
     maxZoom: 20,
@@ -362,7 +370,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   layerGroup = L.layerGroup().addTo(map);
 
-  // clic sur carte = unpin
   map.on("click", () => {
     if (PINNED_MARKER) {
       PINNED_MARKER.closePopup();
@@ -370,27 +377,24 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // --- init selects
+  // init selects
   const regionSelect = document.getElementById("regionSelect");
   const natSelect = document.getElementById("natSelect");
   const movementSelect = document.getElementById("movementSelect");
 
-  // Région : on met la liste fixe, mais tu peux aussi la calculer dynamiquement
   if (regionSelect) fillSelect(regionSelect, REGIONS, "Toutes");
 
-  // Nationalité : depuis NATIONALITY_COORDS (celles réellement cartographiées)
   const natValues = Object.keys(NATIONALITY_COORDS)
     .filter(k => NATIONALITY_COORDS[k] && Number.isFinite(NATIONALITY_COORDS[k].lat))
     .sort((a, b) => a.localeCompare(b));
   if (natSelect) fillSelect(natSelect, natValues, "Toutes");
 
-  // listeners filtres
   const onChange = () => renderWithFilters();
   regionSelect?.addEventListener("change", onChange);
   natSelect?.addEventListener("change", onChange);
   movementSelect?.addEventListener("change", onChange);
 
-  // --- load CSV once, build movement list, first render
+  // load CSV
   Papa.parse(CSV_PATH, {
     download: true,
     header: true,
@@ -399,11 +403,13 @@ document.addEventListener("DOMContentLoaded", () => {
     complete: (res) => {
       ALL_ROWS = (res.data || []).filter(r => r && r.name);
 
-      // Courants artistiques : uniques depuis row.genre
-      const movements = uniqueNonEmpty(ALL_ROWS.map(r => r.genre)).sort((a, b) => a.localeCompare(b));
+      // ✅ mouvements uniques : split puis unique
+      const movements = uniqueNonEmpty(
+        ALL_ROWS.flatMap(r => parseGenres(r.genre))
+      ).sort((a, b) => a.localeCompare(b));
+
       if (movementSelect) fillSelect(movementSelect, movements, "Tous");
 
-      // premier rendu
       renderWithFilters();
     },
     error: (err) => console.error("Erreur CSV:", err)
