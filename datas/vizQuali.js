@@ -1,11 +1,16 @@
+// datas/vizQuali.js
+
 // --- Stopwords FR minimalistes (à enrichir selon tes besoins)
 const STOPWORDS_FR = new Set([
   "a","à","au","aux","avec","ce","ces","dans","de","des","du","elle","en","et","eux",
   "il","je","la","le","les","leur","lui","ma","mais","me","même","mes","moi","mon",
   "ne","nos","notre","nous","on","ou","par","pas","pour","qu","que","qui","sa","se",
   "ses","son","sur","ta","te","tes","toi","ton","tu","un","une","vos","votre","vous",
-  "c","d","j","l","n","s","t","y","été","être","fait","ça","ici", "est" , "sont", "ainsi"
+  "c","d","j","l","n","s","t","y","été","être","fait","ça","ici"
 ]);
+
+// ✅ stocke les dernières fréquences pour pouvoir (re)rendre quand l’onglet devient visible
+let LAST_FREQS = [];
 
 function normalizeText(text) {
   return text
@@ -56,9 +61,15 @@ function setupTabs() {
       if (tab === "cloud") {
         tabCloud.style.display = "block";
         tabOcc.style.display = "none";
+
+        // optionnel : rerender cloud si besoin
+        if (LAST_FREQS.length) renderWordCloud(LAST_FREQS);
       } else {
         tabCloud.style.display = "none";
         tabOcc.style.display = "block";
+
+        // ✅ IMPORTANT : le conteneur est visible => dimensions correctes
+        if (LAST_FREQS.length) renderOccurrences(LAST_FREQS);
       }
     });
   });
@@ -69,11 +80,13 @@ function renderWordCloud(freqs) {
   const container = document.getElementById("wordcloud");
   container.innerHTML = "";
 
-  const { width, height } = container.getBoundingClientRect();
+  const rect = container.getBoundingClientRect();
+  const width = Math.max(320, Math.floor(rect.width));
+  const height = Math.max(260, Math.floor(rect.height));
+
   const top = freqs.slice(0, 80);
   const max = top[0]?.count || 1;
 
-  // échelle de taille
   const size = d3.scaleLinear()
     .domain([1, max])
     .range([12, 64]);
@@ -122,7 +135,10 @@ function renderOccurrences(freqs) {
   const container = document.getElementById("occurrences");
   container.innerHTML = "";
 
-  const { width, height } = container.getBoundingClientRect();
+  const rect = container.getBoundingClientRect();
+  const width = Math.max(360, Math.floor(rect.width));
+  const height = Math.max(260, Math.floor(rect.height));
+
   const data = freqs.slice(0, 20).reverse(); // top 20, affiché du bas vers le haut
 
   const margin = { top: 16, right: 16, bottom: 16, left: 110 };
@@ -146,12 +162,15 @@ function renderOccurrences(freqs) {
     .range([h, 0])
     .padding(0.2);
 
+  // Axes
   g.append("g")
-    .call(d3.axisLeft(y))
+    .call(d3.axisLeft(y).tickSize(0))
+    .call(g => g.select(".domain").remove())
     .selectAll("text")
     .style("fill", "currentColor")
     .style("opacity", 0.9);
 
+  // Bars
   g.selectAll("rect")
     .data(data)
     .enter()
@@ -163,13 +182,14 @@ function renderOccurrences(freqs) {
     .attr("fill", "currentColor")
     .attr("opacity", 0.18);
 
+  // Values
   g.selectAll("text.value")
     .data(data)
     .enter()
     .append("text")
     .attr("class", "value")
     .attr("x", d => x(d.count) + 6)
-    .attr("y", d => (y(d.word) || 0) + y.bandwidth()/2 + 4)
+    .attr("y", d => (y(d.word) || 0) + y.bandwidth() / 2 + 4)
     .style("fill", "currentColor")
     .style("opacity", 0.9)
     .text(d => d.count);
@@ -199,22 +219,39 @@ document.addEventListener("DOMContentLoaded", () => {
     if (tokens.length === 0 || freqs.length === 0) {
       results.style.display = "none";
       status.textContent = "Ajoute un texte (au moins quelques mots) 🙂";
+      LAST_FREQS = [];
       return;
     }
 
     results.style.display = "block";
     status.textContent = `${tokens.length} mots retenus — ${freqs.length} termes uniques`;
 
-    // Rendu
+    // ✅ mémorise pour l’onglet occurrences
+    LAST_FREQS = freqs;
+
+    // ✅ nuage direct (visible)
     renderWordCloud(freqs);
-    renderOccurrences(freqs);
+
+    // ✅ ne pas rendre occurrences ici (souvent caché => width/height = 0)
+    // renderOccurrences(freqs);
 
     // Remet sur l'onglet nuage
     document.querySelector('.tabBtn[data-tab="cloud"]').click();
   });
 
-  // Option UX : Ctrl+Enter pour analyser
+  // Option UX : Ctrl+Enter / Cmd+Enter pour analyser
   input.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") btn.click();
+  });
+
+  // ✅ rerender au resize si l’onglet est visible
+  window.addEventListener("resize", () => {
+    const tabOcc = document.getElementById("tab-occ");
+    const tabCloud = document.getElementById("tab-cloud");
+
+    if (LAST_FREQS.length) {
+      if (tabOcc && tabOcc.style.display !== "none") renderOccurrences(LAST_FREQS);
+      if (tabCloud && tabCloud.style.display !== "none") renderWordCloud(LAST_FREQS);
+    }
   });
 });
