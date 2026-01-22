@@ -127,7 +127,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   const gLabels = svg.append("g");
 
   // --- Load data
-  const raw = await d3.csv(CSV_PATH, d => {
+let raw = [];
+try {
+  raw = await d3.csv(CSV_PATH, d => {
     const genres = parseList(d.genre);
     const nationalities = parseList(d.nationality);
     const primaryGenre = genres[0] || "Unknown";
@@ -148,6 +150,17 @@ document.addEventListener("DOMContentLoaded", async () => {
       multi: genres.length > 1
     };
   });
+} catch (err) {
+  console.error("Erreur chargement CSV:", err);
+  container.innerHTML = `
+    <div style="padding:14px; font-size:13px; opacity:.9;">
+      ❌ Impossible de charger <code>datas/artists.csv</code>.<br>
+      Vérifie que le fichier est bien au bon endroit et que le nom correspond exactement (majuscules/minuscules).
+    </div>
+  `;
+  return;
+}
+
 
   // Domain genres
   const genreDomain = Array.from(new Set(raw.map(d => d.primaryGenre))).sort(d3.ascending);
