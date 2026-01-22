@@ -2,11 +2,8 @@
 
 // --- Stopwords FR minimalistes (à enrichir selon tes besoins)
 const STOPWORDS_FR = new Set([
-  "a","à","au","aux","avec","ce","ces","dans","de","des","du","elle","en","et","eux",
-  "il","je","la","le","les","leur","lui","ma","mais","me","même","mes","moi","mon",
-  "ne","nos","notre","nous","on","ou","par","pas","pour","qu","que","qui","sa","se",
-  "ses","son","sur","ta","te","tes","toi","ton","tu","un","une","vos","votre","vous",
-  "c","d","j","l","n","s","t","y","été","être","fait","ça","ici"
+  "a","à","au","aux","avec","ce","ces","dans","de","des","du","elle","en","et","eux","il","je","la","le","les","leur","lui","ma","mais","me","même","mes","moi","mon","ne","nos","notre","nous","on","ou","par","pas","pour","qu","que","qui","sa","se","ses","son","sur","ta","te","tes","toi","ton","tu","un","une","vos","votre","vous","c","d","j","l","n","s","t","y","été","être","fait","ça","ici","est","sont","etait","etaient","ete","etre","ai","as","a","avons","avez","ont","avais","avait","avions","aviez","avaient","aurai","auras","aura","aurons","aurez","auront","suis","es","sommes","etes","serai","seras","sera","serons","serez","seront","ceci","cela","cet","cette","ces","celui","celle","ceux","celles","plus","moins","tres","comme","donc","ainsi","alors","car"
+
 ]);
 
 // ✅ stocke les dernières fréquences pour pouvoir (re)rendre quand l’onglet devient visible
