@@ -1,9 +1,12 @@
 // datas/viz2.js
 // Bubble network: rayon = paintings, couleur = mouvement (1er genre), liens si genres en commun
+// ✅ Corrections demandées :
+// 1) nationalités et genres affichés en LISTE (split virgules)
+// 2) noms visibles pour TOUS les cercles (pas seulement les gros)
 
 const CSV_PATH = "./datas/artists.csv";
 
-function parseGenres(raw) {
+function parseList(raw) {
   if (!raw) return [];
   return String(raw)
     .split(",")
@@ -26,6 +29,12 @@ function intersectCount(a, b) {
   let c = 0;
   for (const x of b) if (setA.has(x)) c++;
   return c;
+}
+
+function toBullets(items) {
+  if (!items?.length) return "—";
+  // petite liste simple (pas de <ul> pour éviter styles agressifs)
+  return items.map(x => `• ${escapeHtml(x)}`).join("<br>");
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -51,17 +60,23 @@ document.addEventListener("DOMContentLoaded", async () => {
   const gLabels = svg.append("g");
 
   // Charge CSV
-  const rows = await d3.csv(CSV_PATH, d => ({
-    id: d.id,
-    name: d.name,
-    years: d.years,
-    nationality: d.nationality,
-    genreRaw: d.genre,
-    genres: parseGenres(d.genre),
-    primaryGenre: parseGenres(d.genre)[0] || "Unknown",
-    paintings: +d.paintings || 0,
-    wikipedia: d.wikipedia
-  }));
+  const rows = await d3.csv(CSV_PATH, d => {
+    const genres = parseList(d.genre);
+    const nationalities = parseList(d.nationality);
+
+    return {
+      id: d.id,
+      name: d.name,
+      years: d.years,
+      nationalityRaw: d.nationality,
+      nationalities,
+      genreRaw: d.genre,
+      genres,
+      primaryGenre: genres[0] || "Unknown",
+      paintings: +d.paintings || 0,
+      wikipedia: d.wikipedia
+    };
+  });
 
   // Echelles
   const maxPaintings = d3.max(rows, d => d.paintings) || 1;
@@ -112,7 +127,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     simulation.alpha(0.6).restart();
   }
 
-  // Dessin liens (faibles, visibles surtout en hover)
+  // Liens (faibles)
   const linkSel = gLinks.selectAll("line")
     .data(links)
     .enter()
@@ -121,7 +136,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     .attr("opacity", 0.06)
     .attr("stroke-width", d => Math.min(3, 0.6 + d.common * 0.6));
 
-  // Dessin nodes
+  // Nodes
   const nodeSel = gNodes.selectAll("circle")
     .data(nodes)
     .enter()
@@ -134,16 +149,25 @@ document.addEventListener("DOMContentLoaded", async () => {
     .attr("stroke-width", 1.2)
     .style("cursor", "default");
 
-  // Labels uniquement sur gros cercles
+  // ✅ Labels pour TOUS les cercles
+  // On adapte la taille + on limite la longueur (sinon illisible)
   const labelSel = gLabels.selectAll("text")
     .data(nodes)
     .enter()
     .append("text")
-    .text(d => d.name)
+    .text(d => {
+      const n = d.name || "";
+      // limite pour éviter des gros pavés (tu peux ajuster)
+      return n.length > 18 ? n.slice(0, 17) + "…" : n;
+    })
     .attr("text-anchor", "middle")
-    .attr("font-size", d => Math.max(10, Math.min(14, d.r / 4)))
+    .attr("font-size", d => {
+      // taille lisible, bornée
+      const s = d.r / 3.2;
+      return Math.max(9, Math.min(13, s));
+    })
     .attr("fill", "currentColor")
-    .attr("opacity", d => d.r >= 28 ? 0.85 : 0.0)
+    .attr("opacity", 0.85)
     .style("user-select", "none")
     .style("pointer-events", "none");
 
@@ -163,15 +187,19 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   nodeSel.call(drag);
 
-  // Hover interactions (highlight + tooltip)
+  // Tooltip
   function showTooltip(event, d) {
-    const genres = d.genres.join(", ");
     tooltip.innerHTML = `
       <div style="font-weight:800; margin-bottom:6px;">${escapeHtml(d.name)}</div>
+
       <div><b>Œuvres:</b> ${escapeHtml(d.paintings)}</div>
-      <div><b>Genres:</b> ${escapeHtml(genres || "—")}</div>
-      <div><b>Nationalité:</b> ${escapeHtml(d.nationality || "—")}</div>
-      <div style="margin-top:6px;">
+
+      <div style="margin-top:6px;"><b>Genres:</b><br>${toBullets(d.genres)}</div>
+      <div style="margin-top:6px;"><b>Nationalités:</b><br>${toBullets(d.nationalities)}</div>
+
+      <div style="margin-top:6px;"><b>Années:</b> ${escapeHtml(d.years || "—")}</div>
+
+      <div style="margin-top:8px;">
         <a href="${escapeHtml(d.wikipedia)}" target="_blank" rel="noopener noreferrer"
            style="color:#9ecbff; text-decoration:none;">Wikipedia</a>
       </div>
@@ -183,11 +211,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   function moveTooltip(event) {
     const pad = 14;
     const w = tooltip.offsetWidth || 260;
-    const h = tooltip.offsetHeight || 120;
+    const h = tooltip.offsetHeight || 140;
     let x = event.clientX + pad;
     let y = event.clientY + pad;
 
-    // éviter de sortir de l'écran
     if (x + w > window.innerWidth - 8) x = event.clientX - w - pad;
     if (y + h > window.innerHeight - 8) y = event.clientY - h - pad;
 
@@ -199,6 +226,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     tooltip.style.display = "none";
   }
 
+  // Highlight
   function highlight(d) {
     nodeSel
       .attr("fill-opacity", n => isLinked(d, n) ? 0.35 : 0.06)
@@ -207,8 +235,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     linkSel
       .attr("opacity", l => (l.source.id === d.id || l.target.id === d.id) ? 0.35 : 0.03);
 
+    // ✅ labels restent visibles, mais on dim un peu les non-liés
     labelSel
-      .attr("opacity", n => (n.r >= 28 && isLinked(d, n)) ? 0.9 : (n.r >= 28 ? 0.15 : 0.0));
+      .attr("opacity", n => isLinked(d, n) ? 0.95 : 0.25);
   }
 
   function resetHighlight() {
@@ -220,7 +249,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       .attr("opacity", 0.06);
 
     labelSel
-      .attr("opacity", d => d.r >= 28 ? 0.85 : 0.0);
+      .attr("opacity", 0.85);
   }
 
   nodeSel
@@ -236,7 +265,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     .force("charge", d3.forceManyBody().strength(-18))
     .force("collision", d3.forceCollide().radius(d => d.r + 2).iterations(2))
     .force("center", d3.forceCenter(width / 2, height / 2))
-    // force de liens => rapproche les artistes qui partagent des genres
     .force("link", d3.forceLink(links)
       .id(d => d.id)
       .distance(l => 22 + (1 / l.common) * 18)
@@ -259,6 +287,5 @@ document.addEventListener("DOMContentLoaded", async () => {
       .attr("y", d => d.y + 4);
   });
 
-  // resize
   window.addEventListener("resize", () => resize());
 });
