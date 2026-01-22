@@ -1,8 +1,10 @@
 // datas/vizMap.js
+// Carte sombre + tooltip au survol (sans auto-pan) + popup “pinnée” au clic + pin sobre
 
 const CSV_PATH = "./datas/artists.csv";
 
 // Coordonnées "représentatives" par nationalité (capitale / centre).
+// (À compléter si tu veux couvrir plus de cas.)
 const NATIONALITY_COORDS = {
   Italian:   { lat: 41.9028, lon: 12.4964 },
   French:    { lat: 48.8566, lon: 2.3522 },
@@ -18,15 +20,14 @@ const NATIONALITY_COORDS = {
   British:   { lat: 51.5072, lon: -0.1276 },
   Norwegian: { lat: 59.9139, lon: 10.7522 },
   American:  { lat: 38.9072, lon: -77.0369 },
-
   Greek:     { lat: 37.9838, lon: 23.7275 },
   Belarusian:{ lat: 53.9006, lon: 27.5590 },
-  Jewish:    null
+  Jewish:    null // pas une localisation géographique -> ignorée
 };
 
 const WIKI_THUMB_CACHE = new Map();
 
-// ✅ état pour gérer popup “pinnée”
+// Gestion popup “pinnée” (clic)
 let PINNED_MARKER = null;
 
 function escapeHtml(s) {
@@ -38,9 +39,11 @@ function escapeHtml(s) {
     .replaceAll("'", "&#039;");
 }
 
+// "French,British" => essaie French puis British etc.
 function pickCoords(nationalityRaw) {
   if (!nationalityRaw) return null;
   const parts = String(nationalityRaw).split(",").map(s => s.trim()).filter(Boolean);
+
   for (const p of parts) {
     const coords = NATIONALITY_COORDS[p];
     if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lon)) return coords;
@@ -48,6 +51,7 @@ function pickCoords(nationalityRaw) {
   return null;
 }
 
+// Extrait le "title" de l’URL Wikipedia (…/wiki/Claude_Monet)
 function wikiTitleFromUrl(url) {
   try {
     const u = new URL(url);
@@ -59,6 +63,7 @@ function wikiTitleFromUrl(url) {
   }
 }
 
+// Wikipedia REST: summary => contient souvent thumbnail.source
 async function fetchWikiThumbnail(title) {
   if (!title) return null;
   if (WIKI_THUMB_CACHE.has(title)) return WIKI_THUMB_CACHE.get(title);
@@ -77,14 +82,14 @@ async function fetchWikiThumbnail(title) {
   }
 }
 
-function popupHtml({ name, genre, nationality, years, thumbUrl, wikiUrl }) {
+function cardHtml({ name, genre, nationality, years, thumbUrl, wikiUrl }) {
   const safeName = escapeHtml(name);
   const safeGenre = escapeHtml(genre);
   const safeNat = escapeHtml(nationality);
   const safeYears = escapeHtml(years);
   const safeWiki = escapeHtml(wikiUrl || "");
 
-  // ✅ contain = pas de rognage, fond + padding
+  // ✅ contain = pas de rognage (avec fond)
   const img = thumbUrl
     ? `<img src="${escapeHtml(thumbUrl)}" alt="${safeName}"
          style="width:100%;height:100%;object-fit:contain;display:block;padding:6px;background:rgba(255,255,255,0.04);">`
@@ -115,9 +120,14 @@ function popupHtml({ name, genre, nationality, years, thumbUrl, wikiUrl }) {
   `;
 }
 
+// Tooltip = survol (pas de pan), Popup = clic (cliquable)
+function hoverHtml(payload) {
+  return cardHtml(payload);
+}
+
 // ✅ pin “sobre” : petit point avec halo
 const soberIcon = L.divIcon({
-  className: "", // pas de style Leaflet par défaut
+  className: "",
   html: `
     <div style="
       width:12px;height:12px;border-radius:999px;
@@ -130,15 +140,33 @@ const soberIcon = L.divIcon({
   iconAnchor: [6, 6]
 });
 
+// ✅ Option “smart” : choisir au survol si tooltip plutôt au-dessus ou en dessous
+// (évite qu’elle parte hors-carte quand le point est en bordure).
+function chooseTooltipDirection(map, latlng) {
+  const size = map.getSize();                       // px
+  const p = map.latLngToContainerPoint(latlng);     // px
+  const margin = 160; // approx hauteur tooltip + marge
+
+  // si pas assez de place en haut, on préfère en bas
+  if (p.y < margin) return { direction: "bottom", offset: [0, 12] };
+  // si pas assez de place en bas, on préfère en haut
+  if (size.y - p.y < margin) return { direction: "top", offset: [0, -12] };
+
+  // sinon, plutôt en haut (ou bottom si tu préfères)
+  return { direction: "top", offset: [0, -12] };
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const map = L.map("map", { preferCanvas: true }).setView([20, 0], 2);
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 18,
-    attribution: "&copy; OpenStreetMap contributors"
+  // ✅ Fond sombre (CARTO Dark Matter)
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    subdomains: "abcd",
+    maxZoom: 20,
+    attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
   }).addTo(map);
 
-  // ✅ clic sur la carte = unpin
+  // Clic sur la carte = unpin
   map.on("click", () => {
     if (PINNED_MARKER) {
       PINNED_MARKER.closePopup();
@@ -163,43 +191,59 @@ document.addEventListener("DOMContentLoaded", () => {
         const title = wikiTitleFromUrl(row.wikipedia);
         const thumb = await fetchWikiThumbnail(title);
 
+        const payload = {
+          name: row.name,
+          genre: row.genre,
+          nationality: row.nationality,
+          years: row.years,
+          thumbUrl: thumb,
+          wikiUrl: row.wikipedia
+        };
+
         const marker = L.marker([coords.lat, coords.lon], {
           title: row.name || "",
           icon: soberIcon
         });
 
-        marker.bindPopup(
-          popupHtml({
-            name: row.name,
-            genre: row.genre,
-            nationality: row.nationality,
-            years: row.years,
-            thumbUrl: thumb,
-            wikiUrl: row.wikipedia
-          }),
-          {
-            closeButton: true,   // ✅ comme ça on peut fermer “proprement”
-            autoPan: true,
-            className: "person-popup"
-          }
-        );
+        // ✅ Tooltip (survol) : pas d’auto-pan, placement ajusté dynamiquement
+        marker.bindTooltip(hoverHtml(payload), {
+          direction: "top",      // sera ajusté au mouseover
+          opacity: 1,
+          offset: [0, -12],
+          className: "person-tooltip",
+          sticky: true           // plus agréable au survol
+        });
 
-        // ✅ Survol : seulement si rien n’est “pinné”
+        // ✅ Popup (clic) : cliquable + autoPan OK
+        marker.bindPopup(cardHtml(payload), {
+          closeButton: true,
+          autoPan: true,
+          className: "person-popup"
+        });
+
+        // Hover: ouvrir tooltip seulement si rien n’est pinné
         marker.on("mouseover", () => {
-          if (!PINNED_MARKER) marker.openPopup();
+          if (PINNED_MARKER) return;
+
+          // Ajuste top/bottom en fonction de la place
+          const pref = chooseTooltipDirection(map, marker.getLatLng());
+          marker.setTooltipContent(hoverHtml(payload)); // garde contenu
+          marker.getTooltip().options.direction = pref.direction;
+          marker.getTooltip().options.offset = pref.offset;
+
+          marker.openTooltip();
         });
 
-        // ✅ Sortie : seulement si rien n’est “pinné”
         marker.on("mouseout", () => {
-          if (!PINNED_MARKER) marker.closePopup();
+          if (!PINNED_MARKER) marker.closeTooltip();
         });
 
-        // ✅ Clic : pin la popup (reste ouverte, on peut cliquer le lien)
+        // Click: pin le popup (et ferme tooltip si ouvert)
         marker.on("click", (e) => {
-          // Empêche le map click de fermer immédiatement
           L.DomEvent.stopPropagation(e);
 
-          // Si un autre marker était pinné, ferme-le
+          marker.closeTooltip();
+
           if (PINNED_MARKER && PINNED_MARKER !== marker) {
             PINNED_MARKER.closePopup();
           }
@@ -208,7 +252,7 @@ document.addEventListener("DOMContentLoaded", () => {
           marker.openPopup();
         });
 
-        // ✅ Si on ferme la popup via la croix, on “unpin”
+        // Quand popup se ferme: unpin
         marker.on("popupclose", () => {
           if (PINNED_MARKER === marker) PINNED_MARKER = null;
         });
