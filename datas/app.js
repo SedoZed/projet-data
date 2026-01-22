@@ -6,3 +6,18 @@
     }
   });
 })();
+
+document.addEventListener("click", (e) => {
+  const tip = e.target.closest(".infoTip");
+  const anyOpen = document.querySelector(".infoTip.open");
+
+  if (tip) {
+    tip.classList.toggle("open");
+    document.querySelectorAll(".infoTip.open").forEach(el => {
+      if (el !== tip) el.classList.remove("open");
+    });
+    return;
+  }
+
+  if (anyOpen) anyOpen.classList.remove("open");
+});

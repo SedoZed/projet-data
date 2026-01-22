@@ -219,3 +219,68 @@ a.active .pill { background: rgba(110, 168, 254, 0.9); }
   font-size: 12px;
   line-height: 1.35;
 }
+
+.infoTip{
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.infoBtn{
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: #e6edf3;
+  cursor: pointer;
+  font-weight: 800;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.infoBtn:hover{
+  background: rgba(255,255,255,0.10);
+}
+
+.infoBubble{
+  position: absolute;
+  top: 34px;
+  right: 0;
+  width: 320px;
+  max-width: min(320px, calc(100vw - 40px));
+  padding: 10px 12px;
+  border-radius: 14px;
+
+  background: rgba(11,15,20,.96);
+  color: #e6edf3;
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 12px 30px rgba(0,0,0,.35);
+
+  font-size: 12px;
+  line-height: 1.35;
+
+  white-space: normal;
+  overflow-wrap: break-word;
+
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition: opacity .12s ease, transform .12s ease;
+}
+
+/* Survol desktop */
+.infoTip:hover .infoBubble{
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+/* Mode "ouvert" via clic (mobile) */
+.infoTip.open .infoBubble{
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
