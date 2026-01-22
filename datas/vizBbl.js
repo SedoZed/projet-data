@@ -576,3 +576,4 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   await rebuild();
 });
+
