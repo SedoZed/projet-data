@@ -220,6 +220,36 @@ a.active .pill { background: rgba(110, 168, 254, 0.9); }
   line-height: 1.35;
 }
 
+.dv-panel{
+  position: fixed;
+  z-index: 10000;
+  width: 340px;
+  max-width: calc(100vw - 30px);
+  max-height: 60vh;
+  overflow: auto;
+
+  background: rgba(11,15,20,.98);
+  color: #e6edf3;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 14px;
+  padding: 12px 12px;
+
+  box-shadow: 0 12px 30px rgba(0,0,0,.35);
+}
+
+.dv-panel a{ color:#9ecbff; text-decoration:none; }
+.dv-panel a:hover{ text-decoration:underline; }
+
+.dv-panel .close{
+  float:right;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color:#e6edf3;
+  border-radius: 10px;
+  padding: 6px 9px;
+  cursor:pointer;
+}
+
 .infoTip{
   position: relative;
   display: inline-flex;
