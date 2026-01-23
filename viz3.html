@@ -32,18 +32,35 @@
               <button class="infoBtn" type="button" aria-label="Aide — comment lire la visualisation">ⓘ</button>
               <span class="infoBubble" role="tooltip">
                 <b>Comment lire ?</b><br>
-                Chaque point représente une période (ex: décennie).<br>
-                La courbe montre le total d’œuvres des artistes nés pendant cette période.<br>
-                Survole un point pour voir les artistes les plus “productifs” du groupe.
+                La courbe/aire agrège les artistes par périodes (5/10/20 ans).<br>
+                Brush = zoom sur une période (double-clic pour reset).<br>
+                Survol = infos rapides, clic = liste cliquable d’artistes.
               </span>
             </span>
           </h2>
 
           <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin:10px 0 12px;">
             <div>
+              <label style="display:block; font-size:12px; opacity:.85; margin-bottom:6px;">Date utilisée</label>
+              <select id="dateBasis" class="select">
+                <option value="birth">Année de naissance</option>
+                <option value="death">Année de décès</option>
+                <option value="mid" selected>Milieu de carrière (approx.)</option>
+              </select>
+            </div>
+
+            <div>
+              <label style="display:block; font-size:12px; opacity:.85; margin-bottom:6px;">Type de vue</label>
+              <select id="viewType" class="select">
+                <option value="line" selected>Courbe</option>
+                <option value="stack">Aire empilée (par mouvement)</option>
+              </select>
+            </div>
+
+            <div>
               <label style="display:block; font-size:12px; opacity:.85; margin-bottom:6px;">Métrique</label>
               <select id="metricSelect" class="select">
-                <option value="totalPaintings">Total d’œuvres</option>
+                <option value="totalPaintings" selected>Total d’œuvres</option>
                 <option value="artistCount">Nombre d’artistes</option>
                 <option value="avgPaintings">Moyenne d’œuvres / artiste</option>
               </select>
@@ -58,20 +75,29 @@
               </select>
             </div>
 
+            <div style="min-width:220px;">
+              <label style="display:block; font-size:12px; opacity:.85; margin-bottom:6px;">Limiter les mouvements (stack)</label>
+              <select id="topN" class="select">
+                <option value="6">Top 6 + “Other”</option>
+                <option value="8" selected>Top 8 + “Other”</option>
+                <option value="12">Top 12 + “Other”</option>
+                <option value="999">Tous</option>
+              </select>
+            </div>
+
             <div style="flex:1; min-width:240px;">
-              <label style="display:block; font-size:12px; opacity:.85; margin-bottom:6px;">Filtrer par mouvement (optionnel)</label>
+              <label style="display:block; font-size:12px; opacity:.85; margin-bottom:6px;">Filtrer par mouvement (courbe)</label>
               <select id="movementSelect" class="select">
                 <option value="__ALL__">Tous</option>
               </select>
             </div>
 
             <button id="resetBtn3" class="select" style="min-width:auto; cursor:pointer;">Reset</button>
-
             <div id="stats3" style="margin-left:auto; opacity:.85; font-size:12px;"></div>
           </div>
 
           <div id="timeViz"
-               style="width:100%; height:520px; border-radius:16px; overflow:hidden;
+               style="width:100%; height:560px; border-radius:16px; overflow:hidden;
                       border:1px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.02);">
           </div>
         </section>
